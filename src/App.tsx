@@ -1,7 +1,9 @@
+import axios from 'axios'
 import data from 'data/data3.json'
 import { ReactElement, useEffect, useMemo, useState } from 'react'
 import {
   Button,
+  FlatList,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -11,6 +13,7 @@ import {
 } from 'react-native'
 import Autocomplete from 'react-native-autocomplete-input'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
+import XLSX from 'xlsx'
 
 export type RowType = {
   activeSubstance: string
@@ -76,6 +79,21 @@ const filterRefundDrugs = (drugsTable: RowType[], query: string): RowType[] => {
   })
 }
 
+const download = async () => {
+  const response = await axios.get(
+    'https://www.gov.pl/attachment/0617217c-5932-4cbe-9243-0df331575ff9',
+    {
+      responseType: 'arraybuffer'
+    }
+  )
+
+  const workbook = XLSX.read(response.data)
+
+  const first_sheet_name = workbook.SheetNames[0]
+  const worksheet = workbook.Sheets[first_sheet_name]
+  return XLSX.utils.sheet_to_json(worksheet)
+}
+
 export default function App(): ReactElement {
   const [refundTable, setRefundTable] = useState<RowType[]>([])
   const [header, setHeader] = useState<RowType | undefined>(undefined)
@@ -89,6 +107,12 @@ export default function App(): ReactElement {
     setHeader(_header)
   }, [])
 
+  useEffect(() => {
+    download().catch((reason) => {
+      console.log('reason', reason)
+    })
+  }, [])
+
   const [query, setQuery] = useState('')
   const isLoading = !refundTable.length
   const queriedRefundDrugs = useMemo(() => {
@@ -97,15 +121,21 @@ export default function App(): ReactElement {
 
   const suggestions: RowType[] = useMemo(
     () => (queriedRefundDrugs.length === 1 ? [] : queriedRefundDrugs),
-    [queriedRefundDrugs, query]
+    [queriedRefundDrugs]
   )
 
   const placeholder = isLoading ? 'Wczytywanie...' : 'Wpisz nazwę leku'
 
+  const allResultHaveTheSameName = (): boolean => {
+    return queriedRefundDrugs.every(({ nameFormAndDose }) => {
+      return nameFormAndDose === query
+    })
+  }
+
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container}>
-        {queriedRefundDrugs.length !== 1 && (
+        {!allResultHaveTheSameName() && (
           <Autocomplete
             editable={!isLoading}
             autoCorrect={false}
@@ -127,28 +157,30 @@ export default function App(): ReactElement {
           />
         )}
 
-        {queriedRefundDrugs.length === 1 && (
+        {allResultHaveTheSameName() && (
           <SafeAreaView>
-            <ScrollView style={styles.scrollView}>
-              <Field
-                name={header?.nameFormAndDose ?? ''}
-                value={queriedRefundDrugs[0].nameFormAndDose}
-              />
-              <Field
-                name={header?.activeSubstance ?? ''}
-                value={queriedRefundDrugs[0].activeSubstance}
-              />
-              <Field name={header?.retailPrice ?? ''} value={queriedRefundDrugs[0].retailPrice} />
-              <Field name={header?.paymentLevel ?? ''} value={queriedRefundDrugs[0].paymentLevel} />
-              <Field
-                name={header?.scopeOfReimbursement ?? ''}
-                value={queriedRefundDrugs[0].scopeOfReimbursement}
-              />
-              <Field
-                name={header?.scopeOfReimbursementBeyondRegistration ?? ''}
-                value={queriedRefundDrugs[0].scopeOfReimbursementBeyondRegistration}
-              />
-            </ScrollView>
+            <FlatList
+              data={queriedRefundDrugs}
+              renderItem={({ item }) => {
+                return (
+                  <ScrollView style={styles.scrollView}>
+                    <Field name={header?.nameFormAndDose ?? ''} value={item.nameFormAndDose} />
+                    <Field name={header?.activeSubstance ?? ''} value={item.activeSubstance} />
+                    <Field name={header?.retailPrice ?? ''} value={item.retailPrice} />
+                    <Field name={header?.paymentLevel ?? ''} value={item.paymentLevel} />
+                    <Field
+                      name={header?.scopeOfReimbursement ?? ''}
+                      value={item.scopeOfReimbursement}
+                    />
+                    <Field
+                      name={header?.scopeOfReimbursementBeyondRegistration ?? ''}
+                      value={item.scopeOfReimbursementBeyondRegistration}
+                    />
+                  </ScrollView>
+                )
+              }}
+              keyExtractor={(drug) => drug.gtinOrOtherId}
+            />
             <Button title="Wróć" onPress={() => setQuery('')} color="#A29CF4" />
           </SafeAreaView>
         )}
@@ -223,6 +255,13 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     backgroundColor: '#E5E3F1',
-    marginHorizontal: 10
+    marginHorizontal: 10,
+    marginBottom: 10
+  },
+  button: {
+    width: '80%',
+    padding: 10,
+    backgroundColor: 'blue',
+    margin: 10
   }
 })
